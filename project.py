@@ -97,8 +97,7 @@ def main():
                                        queries by providing accurate information. 
                                        If you don't have the information directly, you will automatically search for and 
                                        provide a relevant website link that may contain the answer, without stating your limitations. 
-                                       You can not use however,moreover, and other in your response. Always remind the user to refresh the 
-                                       page if they want to upload a new document.
+                                       You can not use however,moreover, and other in your response.
                                        
     ''')
 
@@ -111,7 +110,7 @@ def main():
 
     # User uploads document
     with st.sidebar.header('Upload your document'):
-        upload_document = st.file_uploader('Upload your document here')
+        upload_document = st.file_uploader('Upload your txt, pdf and docx document file  here')
 
     # Allow external information (toggle button in sidebar)
     st.sidebar.header('Settings')
