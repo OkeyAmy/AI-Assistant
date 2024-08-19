@@ -1,4 +1,3 @@
-faiss-gpu
 langchain
 langchain-google-genai
 pypdf
@@ -8,3 +7,4 @@ streamlit
 docx2txt
 streamlit-chat
 dill
+faiss-cpu
