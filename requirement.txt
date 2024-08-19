@@ -1,17 +1,9 @@
-ipykernel
-langchain v0.1
-google-generativeai
+langchain
 langchain-google-genai
-tiktoken
 pypdf
-pandas
-numpy
 langchain_community
-langchain-experimental
-langchain-cli
 python-dotenv
-langchain-google-community[gmail]
-wikipedia
 streamlit
-tiktoken
+docx2txt
 streamlit-chat
+dill
