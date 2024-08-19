@@ -1,3 +1,4 @@
+faiss-gpu
 langchain
 langchain-google-genai
 pypdf
