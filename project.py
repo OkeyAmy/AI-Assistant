@@ -85,7 +85,7 @@ def main():
     st.header('Your Personal AI Assistant 🤖')
 
     # Initialize the chat model
-    chat = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=1, api_key=google_api_key)
+    chat = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.5, api_key=google_api_key)
 
     # Initialize the session state
     if 'messages' not in st.session_state:
