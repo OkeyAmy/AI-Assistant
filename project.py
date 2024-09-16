@@ -16,8 +16,8 @@ from langchain.chains import RetrievalQAWithSourcesChain, question_answering
 # Load environment variables
 load_dotenv()
 
-# Set Google API key
-os.environ['GOOGLE_API_KEY'] = os.environ('GOOGLE_API_KEY')
+# Set Google API key from environment variable
+google_api_key = os.getenv('GOOGLE_API_KEY')
 
 def init():
     """
@@ -25,7 +25,7 @@ def init():
     """
     st.set_page_config(
         page_title="Your Personal AI Assistant",
-        page_icon="random",
+        page_icon="🤖",
         layout='wide',
         initial_sidebar_state='auto',
         menu_items={
@@ -66,8 +66,13 @@ def load_document(document_file):
         try:
             loader_instance = loader(tmp_file_path)
             documents = loader_instance.load_and_split()
-            # Use GooglePalmEmbeddings if needed, or HuggingFaceEmbeddings as a fallback
-            embedding = GooglePalmEmbeddings(show_progress_bar=True) if os.getenv('GOOGLE_API_KEY') else HuggingFaceEmbeddings(model="sentence-transformers/all-mpnet-base-v2")
+
+            # Use GooglePalmEmbeddings if API key is available, otherwise HuggingFaceEmbeddings
+            if google_api_key:
+                embedding = GooglePalmEmbeddings(show_progress_bar=True)
+            else:
+                embedding = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
+            
             vectorstore = FAISS.from_documents(documents=documents, embedding=embedding, show_progress_bar=True)
 
             # Save the vector store to a temporary file
