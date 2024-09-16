@@ -17,7 +17,7 @@ from langchain.chains import RetrievalQAWithSourcesChain, question_answering
 load_dotenv()
 
 # Set Google API key
-os.environ['GOOGLE_API_KEY'] = os.getenv('GOOGLE_API_KEY')
+os.environ['GOOGLE_API_KEY'] = os.environ('GOOGLE_API_KEY')
 
 def init():
     """
