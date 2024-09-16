@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 import os
 import tempfile
 import pickle
-
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.schema import SystemMessage, HumanMessage, AIMessage
 from langchain.document_loaders import TextLoader, PyPDFLoader, Docx2txtLoader
@@ -16,8 +15,26 @@ from langchain.chains import RetrievalQAWithSourcesChain, question_answering
 # Load environment variables
 load_dotenv()
 
-# Set Google API key from environment variable
-google_api_key = os.getenv('GOOGLE_API_KEY')
+# Set Google API key
+os.environ['GOOGLE_API_KEY'] = os.getenv('GOOGLE_API_KEY')
+
+@st.cache_resource(show_spinner=False)
+def get_embedding_model():
+    """
+    Cache the embedding model to avoid re-initializing it multiple times.
+    """
+    if os.getenv('GOOGLE_API_KEY'):
+        return GooglePalmEmbeddings(show_progress_bar=True)
+    else:
+        return HuggingFaceEmbeddings(model="sentence-transformers/all-mpnet-base-v2")
+
+@st.cache_data(show_spinner=False)
+def create_vectorstore(documents):
+    """
+    Create and cache the FAISS vector store from the given documents.
+    """
+    embedding = get_embedding_model()
+    return FAISS.from_documents(documents=documents, embedding=embedding, show_progress_bar=False)
 
 def init():
     """
@@ -41,53 +58,45 @@ def init():
 
 def load_document(document_file):
     """
-    Load the uploaded document, create embeddings, and save the FAISS vector store.
+    Load the uploaded document and cache the vector store creation.
     """
-    if document_file is not None:
-        # Determine the file type and use the appropriate loader
-        loaders = {
-            'txt': TextLoader,
-            'pdf': PyPDFLoader,
-            'docx': Docx2txtLoader
-        }
-        file_type = document_file.name.split('.')[-1].lower()
-        loader = loaders.get(file_type)
+    loaders = {
+        'txt': TextLoader,
+        'pdf': PyPDFLoader,
+        'docx': Docx2txtLoader
+    }
+    
+    file_type = document_file.name.split('.')[-1].lower()
+    loader = loaders.get(file_type)
 
-        if loader is None:
-            st.error('Unsupported file format.')
-            return None
+    if loader is None:
+        st.error('Unsupported file format.')
+        return None
 
-        # Save the uploaded document to a temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_type}') as temp_file:
-            temp_file.write(document_file.read())
-            tmp_file_path = temp_file.name
+    # Save the uploaded document to a temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_type}') as temp_file:
+        temp_file.write(document_file.read())
+        tmp_file_path = temp_file.name
 
-        # Load the document and create the FAISS vector store
-        try:
-            loader_instance = loader(tmp_file_path)
-            documents = loader_instance.load_and_split()
+    # Load the document and create the FAISS vector store
+    try:
+        loader_instance = loader(tmp_file_path)
+        documents = loader_instance.load_and_split()
+        vectorstore = create_vectorstore(documents)
+        vectorstore_path = tempfile.mktemp(suffix='.pkl')
 
-            # Use GooglePalmEmbeddings if API key is available, otherwise HuggingFaceEmbeddings
-            if google_api_key:
-                embedding = GooglePalmEmbeddings(show_progress_bar=True)
-            else:
-                embedding = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
-            
-            vectorstore = FAISS.from_documents(documents=documents, embedding=embedding, show_progress_bar=True)
+        # Save the vector store for future use
+        with open(vectorstore_path, 'wb') as f:
+            pickle.dump(vectorstore, f)
 
-            # Save the vector store to a temporary file
-            vectorstore_path = tempfile.mktemp(suffix='.pkl')
-            with open(vectorstore_path, 'wb') as f:
-                pickle.dump(vectorstore, f)
-
-            return vectorstore_path
-        except Exception as e:
-            st.error(f'Error processing document: {e}')
-            return None
+        return vectorstore_path
+    except Exception as e:
+        st.error(f'Error processing document: {e}')
+        return None
 
 def main():
     init()
-    
+
     st.header('Your Personal AI Assistant 🤖')
 
     # Initialize the chat model
@@ -101,8 +110,7 @@ def main():
     system_instruction = SystemMessage(content=''' 
         You are a resourceful AI that assists users with their queries by providing accurate information. 
         If you don't have the information directly, you will automatically search for and provide a relevant 
-        website link that may contain the answer, without stating your limitations. Avoid using words like 
-        "however", "moreover", and similar in your responses.
+        website link that may contain the answer, without stating your limitations.
     ''')
     if not st.session_state.messages or not isinstance(st.session_state.messages[0], SystemMessage):
         st.session_state.messages.insert(0, system_instruction)
@@ -148,7 +156,6 @@ def main():
             except Exception as e:
                 response = chat(st.session_state.messages).content
         else:
-            # Filter out SystemMessage from the chat history
             filtered_messages = [msg for msg in st.session_state.messages if not isinstance(msg, SystemMessage)]
             with st.spinner('Thinking...'):
                 response = chat(filtered_messages).content
