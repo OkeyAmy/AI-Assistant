@@ -3,27 +3,25 @@ from streamlit_chat import message
 from dotenv import load_dotenv
 import os
 import tempfile
-import dill as pickle
+import pickle
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.schema import SystemMessage, HumanMessage, AIMessage
 from langchain.document_loaders import TextLoader, PyPDFLoader, Docx2txtLoader
 from langchain.vectorstores import FAISS
-from langchain_community.embeddings import GooglePalmEmbeddings
-from langchain.chains import RetrievalQAWithSourcesChain
-from langchain.chains import question_answering
+from langchain.embeddings import GooglePalmEmbeddings, HuggingFaceEmbeddings
+from langchain.chains import RetrievalQAWithSourcesChain, question_answering
 
 # Load environment variables
 load_dotenv()
 
-# Load the Google API key from environment variables
-google_api_key = os.getenv('GOOGLEAI_API_KEY')
-
-if google_api_key is None:
-    st.error('Google AI API key is not set.')
-    st.stop()
+# Set Google API key
+os.environ['GOOGLE_API_KEY'] = os.getenv('GOOGLE_API_KEY')
 
 def init():
+    """
+    Initialize Streamlit page configuration and settings.
+    """
     st.set_page_config(
         page_title="Your Personal AI Assistant",
         page_icon="random",
@@ -36,25 +34,25 @@ def init():
             I love building tools that make life easier and smarter. With a background in machine 
             learning and experience in creating interactive AI assistants, I'm excited to share my latest 
             project—a personal AI assistant that helps with general knowledge and document analysis.
-
-"""
+            """
         }
     )
 
 def load_document(document_file):
     """
-    Load the uploaded document and create a FAISS vector store.
+    Load the uploaded document, create embeddings, and save the FAISS vector store.
     """
     if document_file is not None:
-        # Determine the file type and use appropriate loader
+        # Determine the file type and use the appropriate loader
+        loaders = {
+            'txt': TextLoader,
+            'pdf': PyPDFLoader,
+            'docx': Docx2txtLoader
+        }
         file_type = document_file.name.split('.')[-1].lower()
-        if file_type == 'txt':
-            loader = TextLoader
-        elif file_type == 'pdf':
-            loader = PyPDFLoader
-        elif file_type == 'docx':
-            loader = Docx2txtLoader
-        else:
+        loader = loaders.get(file_type)
+
+        if loader is None:
             st.error('Unsupported file format.')
             return None
 
@@ -63,21 +61,27 @@ def load_document(document_file):
             temp_file.write(document_file.read())
             tmp_file_path = temp_file.name
 
-        # Load the document
-        loader_instance = loader(tmp_file_path)
-        document = loader_instance.load_and_split()
+        # Load the document and create the FAISS vector store
+        try:
+            loader_instance = loader(tmp_file_path)
+            documents = loader_instance.load_and_split()
+            # Use GooglePalmEmbeddings if needed, or HuggingFaceEmbeddings as a fallback
+            embedding = GooglePalmEmbeddings(show_progress_bar=True) if os.getenv('GOOGLE_API_KEY') else HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-mpnet-base-v2",
+                model_kwargs={'device': 'cpu'},
+                encode_kwargs={'normalize_embeddings': False}
+            )
+            vectorstore = FAISS.from_documents(documents=documents, embedding=embedding, show_progress_bar=True)
 
-        # Generate embeddings and create FAISS vector store
-        embeddings = GooglePalmEmbeddings(show_progress_bar=True, google_api_key=google_api_key)
-        vectorstore = FAISS.from_documents(documents=document, embedding=embeddings)
-
-        # Save the vector store to a temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pkl') as temp_file:
-            vectorstore_path = temp_file.name
+            # Save the vector store to a temporary file
+            vectorstore_path = tempfile.mktemp(suffix='.pkl')
             with open(vectorstore_path, 'wb') as f:
                 pickle.dump(vectorstore, f)
 
-        return vectorstore_path
+            return vectorstore_path
+        except Exception as e:
+            st.error(f'Error processing document: {e}')
+            return None
 
 def main():
     init()
@@ -85,38 +89,31 @@ def main():
     st.header('Your Personal AI Assistant 🤖')
 
     # Initialize the chat model
-    chat = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.5, api_key=google_api_key)
+    chat = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.5)
 
-    # Initialize the session state
+    # Initialize session state for messages
     if 'messages' not in st.session_state:
         st.session_state.messages = []
 
-    # System instruction
+    # Add a system message if not present
     system_instruction = SystemMessage(content=''' 
-                                       You are a resourceful AI that acts like a human who is going to assists users with their 
-                                       queries by providing accurate information. 
-                                       If you don't have the information directly, you will automatically search for and 
-                                       provide a relevant website link that may contain the answer, without stating your limitations. 
-                                       You can not use however,moreover, and other in your response.
-                                       
+        You are a resourceful AI that assists users with their queries by providing accurate information. 
+        If you don't have the information directly, you will automatically search for and provide a relevant 
+        website link that may contain the answer, without stating your limitations. Avoid using words like 
+        "however", "moreover", and similar in your responses.
     ''')
-
-    # Add system instruction to the beginning of the message history if not present
     if not st.session_state.messages or not isinstance(st.session_state.messages[0], SystemMessage):
         st.session_state.messages.insert(0, system_instruction)
 
-    # User input
+    # User input and document upload
     user_input = st.chat_input("Type your message here...")
+    upload_document = st.sidebar.file_uploader('Upload your txt, pdf, or docx document file here')
 
-    # User uploads document
-    with st.sidebar.header('Upload your document'):
-        upload_document = st.file_uploader('Upload your txt, pdf and docx document file  here')
-
-    # Allow external information (toggle button in sidebar)
+    # Allow external information (toggle in sidebar)
     st.sidebar.header('Settings')
     allow_external = st.sidebar.checkbox("Allow external information", value=False)
 
-    # Load the document and create a vector store if not already loaded
+    # Load the document and create a vector store if not already done
     if upload_document and 'vectorstore_path' not in st.session_state:
         with st.spinner("Loading your document..."):
             st.session_state.vectorstore_path = load_document(upload_document)
@@ -124,14 +121,17 @@ def main():
 
     # Load the retriever from the saved vector store
     if 'vectorstore_path' in st.session_state and st.session_state.retriever is None:
-        with open(st.session_state.vectorstore_path, 'rb') as f:
-            vectorstore = pickle.load(f)
-            st.session_state.retriever = vectorstore.as_retriever()
+        try:
+            with open(st.session_state.vectorstore_path, 'rb') as f:
+                vectorstore = pickle.load(f)
+                st.session_state.retriever = vectorstore.as_retriever()
+        except Exception as e:
+            st.error(f'Error loading vector store: {e}')
+            st.session_state.retriever = None
 
     # Process user input and provide responses
     if user_input:
         st.session_state.messages.append(HumanMessage(content=user_input))
-
         if 'retriever' in st.session_state and not allow_external:
             retriever = st.session_state.retriever
             qa_chain = RetrievalQAWithSourcesChain.from_chain_type(
@@ -155,8 +155,7 @@ def main():
             st.session_state.messages.append(AIMessage(content=response))
 
     # Display the chat history
-    messages = st.session_state.get('messages', [])
-    for i, msg in enumerate(messages):
+    for i, msg in enumerate(st.session_state.get('messages', [])):
         if isinstance(msg, HumanMessage):
             message(msg.content, is_user=True, key=str(i) + '_user')
         elif isinstance(msg, AIMessage):
