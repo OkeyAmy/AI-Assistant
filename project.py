@@ -9,7 +9,8 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.schema import SystemMessage, HumanMessage, AIMessage
 from langchain.document_loaders import TextLoader, PyPDFLoader, Docx2txtLoader
 from langchain.vectorstores import FAISS
-from langchain.embeddings import GooglePalmEmbeddings, HuggingFaceEmbeddings
+from langchain.embeddings import GooglePalmEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.chains import RetrievalQAWithSourcesChain, question_answering
 
 # Load environment variables
@@ -66,11 +67,7 @@ def load_document(document_file):
             loader_instance = loader(tmp_file_path)
             documents = loader_instance.load_and_split()
             # Use GooglePalmEmbeddings if needed, or HuggingFaceEmbeddings as a fallback
-            embedding = GooglePalmEmbeddings(show_progress_bar=True) if os.getenv('GOOGLE_API_KEY') else HuggingFaceEmbeddings(
-                model_name="sentence-transformers/all-mpnet-base-v2",
-                model_kwargs={'device': 'cpu'},
-                encode_kwargs={'normalize_embeddings': False}
-            )
+            embedding = GooglePalmEmbeddings(show_progress_bar=True) if os.getenv('GOOGLE_API_KEY') else HuggingFaceEmbeddings(model="sentence-transformers/all-mpnet-base-v2")
             vectorstore = FAISS.from_documents(documents=documents, embedding=embedding, show_progress_bar=True)
 
             # Save the vector store to a temporary file
