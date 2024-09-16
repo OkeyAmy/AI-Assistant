@@ -21,7 +21,7 @@ Welcome to the **Personal AI Assistant** project! This application is designed t
 1. **Clone the Repository**
 
    ```bash
-   git clone https://github.com/okeyamy/your-repository-name.git
+   git clone https://github.com/OkeyAmy/AI-Assistant.git
    cd your-repository-name
 2. **Set Up a Virtual Environment**
 
