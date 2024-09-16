@@ -22,7 +22,7 @@ Welcome to the **Personal AI Assistant** project! This application is designed t
 
    ```bash
    git clone https://github.com/OkeyAmy/AI-Assistant.git
-   cd your-repository-name
+   cd /AI-Assistant
 2. **Set Up a Virtual Environment**
 
    ```bash
