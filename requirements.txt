@@ -10,3 +10,4 @@ dill
 faiss-cpu
 langchain-huggingface
 sentence-transformers
+wikipedia
