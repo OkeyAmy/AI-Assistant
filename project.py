@@ -95,6 +95,17 @@ def load_document(document_file):
         st.error(f'Error processing document: {e}')
         return None
 
+def clean_wikipedia_response(wikipedia_response):
+    """
+    Clean the Wikipedia response to remove unnecessary metadata and formatting.
+    """
+    # Remove "Summary:" and "Page:" lines
+    cleaned_response = "\n".join(
+        line for line in wikipedia_response.split("\n")
+        if not line.startswith("Summary:") and not line.startswith("Page:")
+    )
+    return cleaned_response.strip()
+
 def main():
     init()
 
@@ -162,8 +173,8 @@ def main():
         else:
             # Use WikipediaAPIWrapper when external information is allowed
             if allow_external:
-                wikipedia_results = wikipedia.run(user_input)
-                response = f"From Wikipedia: {wikipedia_results}"
+                wikipedia_response = wikipedia.run(user_input)
+                response = clean_wikipedia_response(wikipedia_response)
             else:
                 filtered_messages = [msg for msg in st.session_state.messages if not isinstance(msg, SystemMessage)]
                 with st.spinner('Thinking...'):
