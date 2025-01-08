@@ -10,8 +10,8 @@ from langchain.document_loaders import TextLoader, PyPDFLoader, Docx2txtLoader
 from langchain.vectorstores import FAISS
 from langchain.embeddings import GooglePalmEmbeddings
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain.chains import RetrievalQAWithSourcesChain, question_answering
-from langchain.utilities import WikipediaAPIWrapper  # Import WikipediaAPIWrapper
+from langchain.chains import RetrievalQA
+from langchain.utilities import WikipediaAPIWrapper
 
 # Load environment variables
 load_dotenv()
@@ -146,24 +146,26 @@ def main():
     # Process user input and provide responses
     if user_input:
         st.session_state.messages.append(HumanMessage(content=user_input))
-        if 'retriever' in st.session_state and not allow_external:
+        if 'retriever' in st.session_state and st.session_state.retriever is not None:
+            # Use the uploaded document for retrieval
             retriever = st.session_state.retriever
-            qa_chain = RetrievalQAWithSourcesChain.from_chain_type(
+            qa_chain = RetrievalQA.from_chain_type(
                 llm=chat,
                 chain_type="stuff",
                 retriever=retriever
             )
             try:
-                matching_results = retriever.get_relevant_documents(user_input)
-                chain = question_answering.load_qa_chain(chat, chain_type='stuff')
-                response = chain.run(input_documents=matching_results, question=user_input)
+                response = qa_chain.run(user_input)
             except Exception as e:
-                response = chat(st.session_state.messages).content
+                st.error(f'Error retrieving information from document: {e}')
+                response = None
         else:
-            # Use WikipediaAPIWrapper when external information is allowed
+            response = None
+
+        # If no response from the document, fall back to Wikipedia or the LLM
+        if response is None:
             if allow_external:
                 wikipedia_response = wikipedia.run(user_input)
-                # Feed the Wikipedia response to the LLM for summarization and rephrasing
                 prompt = f"Based on the following information, provide a concise and conversational answer to the user's query: {wikipedia_response}"
                 response = chat([HumanMessage(content=prompt)]).content
             else:
