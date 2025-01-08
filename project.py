@@ -11,6 +11,7 @@ from langchain.vectorstores import FAISS
 from langchain.embeddings import GooglePalmEmbeddings
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.chains import RetrievalQAWithSourcesChain, question_answering
+from langchain.utilities import WikipediaAPIWrapper  # Import WikipediaAPIWrapper
 
 # Load environment variables
 load_dotenv()
@@ -102,6 +103,9 @@ def main():
     # Initialize the chat model
     chat = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.5)
 
+    # Initialize WikipediaAPIWrapper
+    wikipedia = WikipediaAPIWrapper()
+
     # Initialize session state for messages
     if 'messages' not in st.session_state:
         st.session_state.messages = []
@@ -156,9 +160,14 @@ def main():
             except Exception as e:
                 response = chat(st.session_state.messages).content
         else:
-            filtered_messages = [msg for msg in st.session_state.messages if not isinstance(msg, SystemMessage)]
-            with st.spinner('Thinking...'):
-                response = chat(filtered_messages).content
+            # Use WikipediaAPIWrapper when external information is allowed
+            if allow_external:
+                wikipedia_results = wikipedia.run(user_input)
+                response = f"From Wikipedia: {wikipedia_results}"
+            else:
+                filtered_messages = [msg for msg in st.session_state.messages if not isinstance(msg, SystemMessage)]
+                with st.spinner('Thinking...'):
+                    response = chat(filtered_messages).content
 
         with st.spinner('Thinking...'):
             st.session_state.messages.append(AIMessage(content=response))
