@@ -130,8 +130,12 @@ def main():
     # Load the document and create a vector store if not already done
     if upload_document and 'vectorstore_path' not in st.session_state:
         with st.spinner("Loading your document..."):
-            st.session_state.vectorstore_path = load_document(upload_document)
-            st.session_state.retriever = None
+            vectorstore_path = load_document(upload_document)
+            if vectorstore_path is not None:
+                st.session_state.vectorstore_path = vectorstore_path
+                st.session_state.retriever = None
+            else:
+                st.error("Failed to process the uploaded document.")
 
     # Load the retriever from the saved vector store
     if 'vectorstore_path' in st.session_state and st.session_state.retriever is None:
