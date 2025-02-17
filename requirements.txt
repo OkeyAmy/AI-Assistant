@@ -12,3 +12,4 @@ langchain-huggingface
 sentence-transformers
 wikipedia
 google-generativeai
+plotly

@@ -1,4 +1,5 @@
 import streamlit as st
+import logging
 from streamlit_chat import message
 from dotenv import load_dotenv
 import os
@@ -8,40 +9,117 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.schema import SystemMessage, HumanMessage, AIMessage
 from langchain.document_loaders import TextLoader, PyPDFLoader, Docx2txtLoader
 from langchain.vectorstores import FAISS
-from langchain.embeddings import GooglePalmEmbeddings
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.chains import RetrievalQA
 from langchain.utilities import WikipediaAPIWrapper
+
+import google.generativeai as genai
+
+# Configure logging
+logging.basicConfig(
+    level=logging.ERROR,
+    format='%(asctime)s %(levelname)s:%(message)s',
+)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
 
 # Set Google API key
 os.environ['GOOGLE_API_KEY'] = os.getenv('GOOGLE_API_KEY')
+genai.configure(api_key=os.getenv('GOOGLE_API_KEY'))
 
+# ------------------------------------------------------------------------------
+# Custom Embedding Class for GenAI
+# ------------------------------------------------------------------------------
+class GenAIEmbeddings:
+    """
+    A custom embedding class wrapping genai.embed_content.
+    
+    This class implements the embed_query and embed_documents methods expected by
+    LangChain to generate embeddings using Google Generative AI.
+    """
+    def __init__(self, model: str = "models/text-embedding-004"):
+        self.model = model
+
+    def __call__(self, text: str) -> list:
+        """
+        Make the class callable - delegates to embed_query
+        """
+        return self.embed_query(text)
+
+    def embed_query(self, text: str) -> list:
+        """
+        Embeds a query text using the Google Generative AI API.
+        """
+        try:
+            result = genai.embed_content(
+                model=self.model,
+                content=text,
+                task_type="retrieval_query"
+            )
+            embeddings = result["embedding"]
+            if embeddings is None:
+                raise ValueError("No embedding found in API response")
+            return embeddings
+        except Exception as e:
+            logger.error("Error in embed_query: %s", e, exc_info=True)
+            st.error("Error generating query embedding.")
+            raise e
+
+    def embed_documents(self, texts: list) -> list:
+        """
+        Embeds a list of documents using the Google Generative AI API.
+        """
+        try:
+            embeddings = []
+            for text in texts:
+                result = genai.embed_content(
+                    model=self.model,
+                    content=text,
+                    task_type="retrieval_document"
+                )
+                embedding = result["embedding"]
+                if embedding is None:
+                    raise ValueError("No embedding found in API response")
+                embeddings.append(embedding)
+            return embeddings
+        except Exception as e:
+            logger.error("Error in embed_documents: %s", e, exc_info=True)
+            st.error("Error generating document embeddings.")
+            raise e
+
+# ------------------------------------------------------------------------------
+# Cached Resource: Get Embedding Model
+# ------------------------------------------------------------------------------
 @st.cache_resource(show_spinner=False)
 def get_embedding_model():
-    """
-    Cache the embedding model to avoid re-initializing it multiple times.
-    """
-    google_api_key = os.getenv('GOOGLE_API_KEY')
-    if google_api_key:
-        try:
-            return GooglePalmEmbeddings(google_api_key=google_api_key, show_progress_bar=True)
-        except AttributeError:
-            st.warning("Google Generative AI embeddings not available. Falling back to HuggingFaceEmbeddings.")
-            return HuggingFaceEmbeddings(model="sentence-transformers/all-mpnet-base-v2")
-    else:
-        return HuggingFaceEmbeddings(model="sentence-transformers/all-mpnet-base-v2")
+    try:
+        embedding_model = GenAIEmbeddings(model="models/text-embedding-004")
+        return embedding_model
+    except Exception as e:
+        logger.error("Error in get_embedding_model: %s", e, exc_info=True)
+        st.error("Error configuring the embedding model.")
+        raise e
 
+# ------------------------------------------------------------------------------
+# Cached Data: Create Vectorstore
+# ------------------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def create_vectorstore(_documents):
     """
     Create and cache the FAISS vector store from the given documents.
     """
-    embedding = get_embedding_model()
-    return FAISS.from_documents(documents=_documents, embedding=embedding, show_progress_bar=False)
+    try:
+        embedding = get_embedding_model()
+        return FAISS.from_documents(documents=_documents, embedding=embedding)
+    except Exception as e:
+        logger.error("Error in create_vectorstore: %s", e, exc_info=True)
+        st.error("Error creating vector store.")
+        raise e
 
+# ------------------------------------------------------------------------------
+# Streamlit Page Initialization
+# ------------------------------------------------------------------------------
 def init():
     """
     Initialize Streamlit page configuration and settings.
@@ -62,6 +140,9 @@ def init():
         }
     )
 
+# ------------------------------------------------------------------------------
+# Document Loader Function
+# ------------------------------------------------------------------------------
 def load_document(document_file):
     """
     Load the uploaded document and cache the vector store creation.
@@ -79,13 +160,13 @@ def load_document(document_file):
         st.error('Unsupported file format.')
         return None
 
-    # Save the uploaded document to a temporary file
-    with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_type}') as temp_file:
-        temp_file.write(document_file.read())
-        tmp_file_path = temp_file.name
-
-    # Load the document and create the FAISS vector store
     try:
+        # Save the uploaded document to a temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_type}') as temp_file:
+            temp_file.write(document_file.read())
+            tmp_file_path = temp_file.name
+
+        # Load the document and create the FAISS vector store
         loader_instance = loader(tmp_file_path)
         documents = loader_instance.load_and_split()
         vectorstore = create_vectorstore(documents)
@@ -97,100 +178,124 @@ def load_document(document_file):
 
         return vectorstore_path
     except Exception as e:
+        logger.error("Error in load_document: %s", e, exc_info=True)
         st.error(f'Error processing document: {e}')
         return None
 
+# ------------------------------------------------------------------------------
+# Main Function
+# ------------------------------------------------------------------------------
 def main():
-    init()
+    try:
+        init()
+        st.header('Your Personal AI Assistant 🤖')
 
-    st.header('Your Personal AI Assistant 🤖')
+        # Initialize the chat model
+        chat = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.5)
 
-    # Initialize the chat model
-    chat = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.5)
+        # Initialize WikipediaAPIWrapper
+        wikipedia = WikipediaAPIWrapper()
 
-    # Initialize WikipediaAPIWrapper
-    wikipedia = WikipediaAPIWrapper()
+        # Initialize session state for messages
+        if 'messages' not in st.session_state:
+            st.session_state.messages = []
 
-    # Initialize session state for messages
-    if 'messages' not in st.session_state:
-        st.session_state.messages = []
+        # Add a system message if not present
+        system_instruction = SystemMessage(content=''' 
+            You are a resourceful AI that assists users with their queries by providing accurate information. 
+            If you don't have the information directly, you will automatically search for and provide a relevant 
+            website link that may contain the answer, without stating your limitations.
+        ''')
+        if not st.session_state.messages or not isinstance(st.session_state.messages[0], SystemMessage):
+            st.session_state.messages.insert(0, system_instruction)
 
-    # Add a system message if not present
-    system_instruction = SystemMessage(content=''' 
-        You are a resourceful AI that assists users with their queries by providing accurate information. 
-        If you don't have the information directly, you will automatically search for and provide a relevant 
-        website link that may contain the answer, without stating your limitations.
-    ''')
-    if not st.session_state.messages or not isinstance(st.session_state.messages[0], SystemMessage):
-        st.session_state.messages.insert(0, system_instruction)
+        # User input and document upload
+        user_input = st.chat_input("Type your message here...")
+        upload_document_file = st.sidebar.file_uploader('Upload your txt, pdf, or docx document file here')
 
-    # User input and document upload
-    user_input = st.chat_input("Type your message here...")
-    upload_document = st.sidebar.file_uploader('Upload your txt, pdf, or docx document file here')
+        # Allow external information (toggle in sidebar)
+        st.sidebar.header('Settings')
+        allow_external = st.sidebar.checkbox("Allow external information", value=False)
 
-    # Allow external information (toggle in sidebar)
-    st.sidebar.header('Settings')
-    allow_external = st.sidebar.checkbox("Allow external information", value=False)
+        # Load the document and create a vector store if not already done
+        if upload_document_file and 'vectorstore_path' not in st.session_state:
+            with st.spinner("Loading your document..."):
+                vectorstore_path = load_document(upload_document_file)
+                if vectorstore_path is not None:
+                    st.session_state.vectorstore_path = vectorstore_path
+                    st.session_state.retriever = None
+                else:
+                    st.error("Failed to process the uploaded document.")
 
-    # Load the document and create a vector store if not already done
-    if upload_document and 'vectorstore_path' not in st.session_state:
-        with st.spinner("Loading your document..."):
-            vectorstore_path = load_document(upload_document)
-            if vectorstore_path is not None:
-                st.session_state.vectorstore_path = vectorstore_path
-                st.session_state.retriever = None
-            else:
-                st.error("Failed to process the uploaded document.")
-
-    # Load the retriever from the saved vector store
-    if 'vectorstore_path' in st.session_state and st.session_state.retriever is None:
-        try:
-            with open(st.session_state.vectorstore_path, 'rb') as f:
-                vectorstore = pickle.load(f)
-                st.session_state.retriever = vectorstore.as_retriever()
-        except Exception as e:
-            st.error(f'Error loading vector store: {e}')
-            st.session_state.retriever = None
-
-    # Process user input and provide responses
-    if user_input:
-        st.session_state.messages.append(HumanMessage(content=user_input))
-        if 'retriever' in st.session_state and st.session_state.retriever is not None:
-            # Use the uploaded document for retrieval
-            retriever = st.session_state.retriever
-            qa_chain = RetrievalQA.from_chain_type(
-                llm=chat,
-                chain_type="stuff",
-                retriever=retriever
-            )
+        # Load the retriever from the saved vector store
+        if 'vectorstore_path' in st.session_state and st.session_state.get('retriever') is None:
             try:
-                response = qa_chain.run(user_input)
+                with open(st.session_state.vectorstore_path, 'rb') as f:
+                    vectorstore = pickle.load(f)
+                    st.session_state.retriever = vectorstore.as_retriever()
             except Exception as e:
-                st.error(f'Error retrieving information from document: {e}')
-                response = None
-        else:
-            response = None
+                logger.error("Error loading vector store: %s", e, exc_info=True)
+                st.error(f'Error loading vector store: {e}')
+                st.session_state.retriever = None
 
-        # If no response from the document, fall back to Wikipedia or the LLM
-        if response is None:
-            if allow_external:
-                wikipedia_response = wikipedia.run(user_input)
-                prompt = f"Based on the following information, provide a concise and conversational answer to the user's query: {wikipedia_response}"
-                response = chat([HumanMessage(content=prompt)]).content
+        # Process user input and provide responses
+        if user_input:
+            st.session_state.messages.append(HumanMessage(content=user_input))
+            if 'retriever' in st.session_state and st.session_state.retriever is not None:
+                # Use the uploaded document for retrieval
+                retriever = st.session_state.retriever
+                qa_chain = RetrievalQA.from_chain_type(
+                    llm=chat,
+                    chain_type="stuff",
+                    retriever=retriever
+                )
+                try:
+                    response = qa_chain.run(user_input)
+                except Exception as e:
+                    logger.error("Error retrieving information from document: %s", e, exc_info=True)
+                    st.error(f'Error retrieving information from document: {e}')
+                    response = None
             else:
-                filtered_messages = [msg for msg in st.session_state.messages if not isinstance(msg, SystemMessage)]
-                with st.spinner('Thinking...'):
-                    response = chat(filtered_messages).content
+                response = None
 
-        with st.spinner('Thinking...'):
-            st.session_state.messages.append(AIMessage(content=response))
+            # If no response from the document, fall back to Wikipedia or the LLM
+            if response is None:
+                if allow_external:
+                    try:
+                        wikipedia_response = wikipedia.run(user_input)
+                        prompt = (
+                            f"Based on the following information, provide a concise and conversational answer "
+                            f"to the user's query: {wikipedia_response}"
+                        )
+                        response = chat([HumanMessage(content=prompt)]).content
+                    except Exception as e:
+                        logger.error("Error retrieving external information: %s", e, exc_info=True)
+                        st.error(f'Error retrieving external information: {e}')
+                        response = "I'm sorry, I couldn't retrieve an answer at this time."
+                else:
+                    filtered_messages = [msg for msg in st.session_state.messages if not isinstance(msg, SystemMessage)]
+                    with st.spinner('Thinking...'):
+                        try:
+                            response = chat(filtered_messages).content
+                        except Exception as e:
+                            logger.error("Error generating response from LLM: %s", e, exc_info=True)
+                            st.error(f'Error generating response: {e}')
+                            response = "I'm sorry, I couldn't generate a response at this time."
 
-    # Display the chat history
-    for i, msg in enumerate(st.session_state.get('messages', [])):
-        if isinstance(msg, HumanMessage):
-            message(msg.content, is_user=True, key=str(i) + '_user')
-        elif isinstance(msg, AIMessage):
-            message(msg.content, is_user=False, key=str(i) + '_ai')
+            with st.spinner('Thinking...'):
+                st.session_state.messages.append(AIMessage(content=response))
+
+        # Display the chat history
+        for i, msg in enumerate(st.session_state.get('messages', [])):
+            if isinstance(msg, HumanMessage):
+                message(msg.content, is_user=True, key=str(i) + '_user')
+            elif isinstance(msg, AIMessage):
+                message(msg.content, is_user=False, key=str(i) + '_ai')
+    except Exception as e:
+        logger.error("Unexpected error in main: %s", e, exc_info=True)
+        st.error("An unexpected error occurred. Please check the logs for more details.")
 
 if __name__ == "__main__":
     main()
+
+
