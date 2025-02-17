@@ -11,3 +11,4 @@ faiss-cpu
 langchain-huggingface
 sentence-transformers
 wikipedia
+google-generativeai
