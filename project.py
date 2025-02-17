@@ -24,8 +24,9 @@ def get_embedding_model():
     """
     Cache the embedding model to avoid re-initializing it multiple times.
     """
-    if os.getenv('GOOGLE_API_KEY'):
-        return GooglePalmEmbeddings(show_progress_bar=True)
+    google_api_key = os.getenv('GOOGLE_API_KEY')
+    if google_api_key:
+        return GooglePalmEmbeddings(google_api_key=google_api_key, show_progress_bar=True)
     else:
         return HuggingFaceEmbeddings(model="sentence-transformers/all-mpnet-base-v2")
 
