@@ -30,12 +30,12 @@ def get_embedding_model():
         return HuggingFaceEmbeddings(model="sentence-transformers/all-mpnet-base-v2")
 
 @st.cache_data(show_spinner=False)
-def create_vectorstore(documents):
+def create_vectorstore(_documents):
     """
     Create and cache the FAISS vector store from the given documents.
     """
     embedding = get_embedding_model()
-    return FAISS.from_documents(documents=documents, embedding=embedding, show_progress_bar=False)
+    return FAISS.from_documents(documents=_documents, embedding=embedding, show_progress_bar=False)
 
 def init():
     """
