@@ -26,7 +26,11 @@ def get_embedding_model():
     """
     google_api_key = os.getenv('GOOGLE_API_KEY')
     if google_api_key:
-        return GooglePalmEmbeddings(google_api_key=google_api_key, show_progress_bar=True)
+        try:
+            return GooglePalmEmbeddings(google_api_key=google_api_key, show_progress_bar=True)
+        except AttributeError:
+            st.warning("Google Generative AI embeddings not available. Falling back to HuggingFaceEmbeddings.")
+            return HuggingFaceEmbeddings(model="sentence-transformers/all-mpnet-base-v2")
     else:
         return HuggingFaceEmbeddings(model="sentence-transformers/all-mpnet-base-v2")
 
